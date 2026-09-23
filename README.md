@@ -10,18 +10,8 @@ checkout. Nothing needs to be registered as a `minieval` task.
 ```text
 agent_swarm/                    reusable launch, backend, and trace utilities
 experiments/cedar_coordination/ task briefs, service, runner, and analysis
-runs/cedar_coordination/        successful collected runs
-.archive/<timestamp>-before-cedar/ original agent-swarm files, preserved together
-MIGRATION.json                  source/destination mapping for the move
-../minimal-eval/                shared harness and agents/zcode assets
+runs/cedar_coordination/        collected runs, including infrastructure failures
 ```
-
-The archived implementation remains available for reference.
-`.archive/cedar-source-<timestamp>.tar.gz` also preserves the original Cedar source
-before the shared runtime was extracted. `MIGRATION.json` records the migration
-mapping. Its message-triggered
-wakeups and coordination orchestrator are not part of the new experiment runtime.
-The trace tooling retains the useful ability to inspect complete agent histories.
 
 ## Run Cedar
 
