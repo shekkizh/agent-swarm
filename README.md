@@ -10,7 +10,7 @@ checkout. Nothing needs to be registered as a `minieval` task.
 ```text
 agent_swarm/                    reusable launch, backend, and trace utilities
 experiments/cedar_coordination/ task briefs, service, runner, and analysis
-runs/cedar_coordination/        collected runs, including infrastructure failures
+runs/cedar_coordination/        successful collected runs
 .archive/<timestamp>-before-cedar/ original agent-swarm files, preserved together
 MIGRATION.json                  source/destination mapping for the move
 ../minimal-eval/                shared harness and agents/zcode assets
@@ -59,9 +59,15 @@ python3 -m agent_swarm.viewer --runs runs --port 8766
 To inspect the original archived runs, point `--runs` at
 `.archive/<timestamp>-before-cedar/runs`. The viewer reads Cedar's
 `agent-homes.tar.gz` directly and supports the archived `agent_data` layout. It
-shows complete request/response records, including system messages and raw
-malformed records, without truncation or pagination. Repeated history within
-requests is retained. This is a read-only local viewer; task pass/fail checks
+opens sessions in the bundled Agent Trace conversation viewer, adapted from
+`shekkizh-website/public/agent-trace.html`, with thinking/system/metadata filters,
+copy buttons, collapsible tool output, and light/dark themes. It loads entirely
+locally. Conversation view merges repeated histories; **Complete roundtrips**
+retains every request/response, offset, and malformed raw record without truncation.
+Original JSONL downloads preserve source bytes.
+
+The three failed initial Cedar runs are preserved under
+`.archive/failed-initial-runs/cedar_coordination`, outside the active runs list. This is a read-only local viewer; task pass/fail checks
 remain separate.
 
 Export a complete run for offline reading:

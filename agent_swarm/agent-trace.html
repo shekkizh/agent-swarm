@@ -1,0 +1,2144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Trace</title>
+<meta name="description" content="Paste or upload a JSONL transcript from Codex, Claude Code, ZCode, or any coding agent and read it like a conversation.">
+<script>
+  (() => {
+    const saved = localStorage.getItem("theme");
+    const theme = saved === "light" || saved === "dark"
+      ? saved
+      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.dataset.theme = theme;
+  })();
+</script>
+<style>
+  :root {
+    /* brand palette */
+    --dark: #141413;
+    --light: #faf9f5;
+    --mid-gray: #b0aea5;
+    --light-gray: #e8e6dc;
+    --orange: #d97757;
+    --blue: #6a9bcc;
+    --green: #788c5d;
+
+    /* semantic tokens */
+    --bg: var(--light);
+    --panel: #ffffff;
+    --border: var(--light-gray);
+    --border-strong: var(--mid-gray);
+    --text: var(--dark);
+    --text-muted: #6c6a63;
+    --text-faint: var(--mid-gray);
+
+    --user: var(--blue);
+    --user-bg: #eef3f9;
+    --tool: var(--orange);
+    --tool-bg: #fbefe8;
+    --thinking: var(--green);
+    --thinking-bg: #eff2e8;
+    --assistant: var(--dark);
+    --assistant-contrast: #ffffff;
+    --drag-overlay: rgba(250, 249, 245, 0.85);
+
+    --code-bg: #f2f1ea;
+    --error: #b2513b;
+    --error-bg: #f7e4dc;
+
+    --radius: 8px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Poppins", Arial, sans-serif;
+    --serif: "Lora", Georgia, serif;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: oklch(0.145 0 0);
+    --panel: oklch(0.205 0 0);
+    --border: oklch(1 0 0 / 10%);
+    --border-strong: oklch(1 0 0 / 15%);
+    --text: oklch(0.985 0 0);
+    --text-muted: oklch(0.708 0 0);
+    --text-faint: oklch(0.556 0 0);
+    --user-bg: #1b2633;
+    --tool-bg: #2e1f17;
+    --thinking-bg: #1e2418;
+    --code-bg: oklch(0.269 0 0);
+    --error-bg: #2e1b14;
+    --assistant: oklch(0.85 0 0);
+    --assistant-contrast: #141413;
+    --drag-overlay: rgba(20, 20, 19, 0.85);
+  }
+
+  :root[data-theme="light"] { color-scheme: light; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--serif);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.55;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6,
+  .heading { font-family: var(--sans); font-weight: 600; letter-spacing: -0.01em; }
+
+  a { color: var(--orange); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---- Header ---- */
+  header.site {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 22px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header.site .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--sans); font-weight: 600; font-size: 16px;
+    color: var(--text);
+  }
+  header.site .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--orange);
+    box-shadow: -4px 0 0 var(--blue), -8px 0 0 var(--green);
+    margin-left: 8px;
+  }
+  header.site .spacer { flex: 1; }
+  header.site .meta { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
+  header.site nav { display: flex; gap: 6px; align-items: center; }
+  header.site nav a.navlink {
+    font-family: var(--sans); font-size: 13px; font-weight: 500;
+    padding: 5px 10px; border-radius: var(--radius);
+    color: var(--text-muted); cursor: pointer;
+  }
+  header.site nav a.navlink:hover { color: var(--text); text-decoration: none; background: var(--code-bg); }
+
+  /* ---- Buttons ---- */
+  button, label.btn {
+    font-family: var(--sans);
+    font-size: 13px; font-weight: 500;
+    padding: 7px 14px;
+    border: 1px solid var(--border-strong);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  button:hover, label.btn:hover { background: var(--code-bg); }
+  button.primary, label.btn.primary {
+    background: var(--orange); border-color: var(--orange); color: #fff;
+  }
+  button.primary:hover, label.btn.primary:hover { background: #c86648; border-color: #c86648; color: #fff; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  input[type="file"] { display: none; }
+  select#example-select {
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+
+  .theme-toggle {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+    color: var(--text-muted);
+  }
+  .theme-toggle:hover { color: var(--text); }
+  .theme-icon { position: relative; display: block; width: 16px; height: 16px; }
+  .theme-icon::before, .theme-icon::after { content: ""; position: absolute; }
+  .theme-icon.moon::before {
+    inset: 1px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .theme-icon.moon::after {
+    width: 12px;
+    height: 12px;
+    top: -1px;
+    right: -1px;
+    border-radius: 50%;
+    background: var(--panel);
+  }
+  .theme-toggle:hover .theme-icon.moon::after { background: var(--code-bg); }
+  .theme-icon.sun {
+    border: 2px solid currentColor;
+    border-radius: 50%;
+    transform: scale(0.58);
+    box-shadow: 0 -12px 0 -5px currentColor, 0 12px 0 -5px currentColor,
+      12px 0 0 -5px currentColor, -12px 0 0 -5px currentColor,
+      8px 8px 0 -5px currentColor, -8px -8px 0 -5px currentColor,
+      8px -8px 0 -5px currentColor, -8px 8px 0 -5px currentColor;
+  }
+
+  .copy-btn {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--sans);
+    font-size: 11px;
+    line-height: 1.4;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .copy-btn:hover { color: var(--text); background: var(--code-bg); }
+  .copy-btn.copied { color: var(--green); }
+
+  /* ---- Input section ---- */
+  main { flex: 1; }
+  #input-section {
+    padding: 28px 20px 40px;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  #input-section.hidden { display: none; }
+  #input-section h2 {
+    margin: 0 0 6px 0; font-size: 28px; font-weight: 600;
+  }
+  #input-section .lede {
+    font-family: var(--serif);
+    color: var(--text-muted);
+    font-size: 15px;
+    margin: 0 0 22px 0;
+    max-width: 62ch;
+  }
+
+  .dropzone {
+    position: relative;
+    border: 2px dashed var(--border-strong);
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--panel);
+    padding: 2px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.dragover {
+    border-color: var(--orange);
+    background: var(--tool-bg);
+  }
+  .dropzone.dragover::after {
+    content: "Drop the JSONL file";
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--sans); font-weight: 600; color: var(--orange);
+    pointer-events: none;
+    background: var(--drag-overlay);
+    border-radius: var(--radius);
+  }
+  textarea#input {
+    display: block;
+    width: 100%;
+    min-height: 240px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 14px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    resize: vertical;
+    outline: none;
+  }
+
+  .input-actions {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin-top: 14px;
+  }
+  .input-actions .spacer { flex: 1; }
+  .hint-row {
+    margin-top: 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .hint-row kbd {
+    font-family: var(--mono); font-size: 11px;
+    padding: 1px 6px; background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 4px;
+  }
+  .input-error {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: var(--error-bg);
+    color: var(--error);
+    border-radius: var(--radius);
+    font-size: 13px;
+    white-space: pre-wrap;
+    font-family: var(--mono);
+  }
+
+  /* ---- Output ---- */
+  #output {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 20px 16px 40px;
+  }
+  #output.empty { display: none; }
+
+  .event { margin-bottom: 12px; border-radius: var(--radius); overflow: hidden; }
+
+  .event-head {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 4px 0;
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .event-head .label { color: var(--text); }
+  .event-head .ts { font-family: var(--mono); font-weight: 400; color: var(--text-faint); text-transform: none; letter-spacing: 0; }
+  .event-head .tag {
+    font-family: var(--mono); font-weight: 400; text-transform: none;
+    letter-spacing: 0; color: var(--text-muted);
+    padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--panel);
+  }
+
+  .bubble {
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .bubble.user { border-left-color: var(--blue); background: var(--user-bg); }
+  .bubble.user .event-head .label { color: var(--blue); }
+  .bubble.assistant { border-left-color: var(--assistant); background: var(--panel); }
+  .bubble.tool { border-left-color: var(--orange); background: var(--tool-bg); border-color: rgba(217, 119, 87, 0.25); }
+  .bubble.tool .event-head .label { color: var(--orange); }
+  .bubble.thinking { border-left-color: var(--green); background: var(--thinking-bg); border-color: rgba(120, 140, 93, 0.25); }
+  .bubble.thinking .event-head .label { color: var(--green); }
+  .bubble.system-note {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: var(--sans);
+    padding: 6px 10px;
+    border: none; border-left: none;
+    background: transparent;
+    text-align: center;
+    border-top: 1px dashed var(--border);
+    border-bottom: 1px dashed var(--border);
+    border-radius: 0;
+    margin: 10px 0;
+    letter-spacing: 0.02em;
+  }
+  .bubble.error { background: var(--error-bg); border-left-color: var(--error); }
+  .bubble.system-meta { border-left-color: var(--mid-gray); }
+
+  .body {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    font-family: var(--serif);
+  }
+  .body.mono { font-family: var(--mono); font-size: 12.5px; }
+  .body p { margin: 0 0 0.7em 0; }
+  .body p:last-child { margin-bottom: 0; }
+
+  code.inline {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  pre {
+    margin: 8px 0 0 0;
+    padding: 10px 12px;
+    background: var(--code-bg);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.45;
+  }
+
+  details { margin-top: 8px; }
+  details summary {
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 3px 0;
+    user-select: none;
+  }
+  details summary:hover { color: var(--text); }
+  details[open] summary { margin-bottom: 4px; }
+
+  .tool-cmd {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 8px 12px;
+    background: var(--code-bg);
+    border-radius: var(--radius);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .tool-cmd .prompt { color: var(--orange); user-select: none; font-weight: 600; }
+
+  .tool-result {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    background: var(--code-bg);
+    border-radius: var(--radius);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .tool-result.is-error { color: var(--error); }
+  .tool-meta { font-size: 11px; color: var(--text-faint); margin-top: 4px; font-family: var(--mono); }
+
+  .muted { color: var(--text-muted); }
+  .stats { color: var(--text-faint); font-size: 12px; padding: 4px 10px; font-family: var(--mono); }
+
+  .controls-inline { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--text-muted); font-family: var(--sans); }
+  .controls-inline label { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; }
+
+  /* ---- About ---- */
+  #about-section { padding: 40px 20px 60px; max-width: 760px; margin: 0 auto; }
+  #about-section.hidden { display: none; }
+  #about-section h2 { font-size: 30px; margin: 0 0 8px 0; }
+  #about-section .lede { font-family: var(--serif); color: var(--text-muted); font-size: 16px; margin: 0 0 24px 0; }
+  #about-section h3 { font-size: 17px; margin: 22px 0 6px 0; }
+  #about-section p, #about-section li { font-family: var(--serif); }
+  #about-section ul { padding-left: 20px; }
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 20px 0; }
+  .pill {
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    padding: 4px 10px; border-radius: 999px; color: #fff;
+  }
+  .pill.user { background: var(--blue); }
+  .pill.assistant { background: var(--assistant); color: var(--assistant-contrast); }
+  .pill.tool { background: var(--orange); }
+  .pill.thinking { background: var(--green); }
+  .pill.system { background: var(--mid-gray); color: var(--dark); }
+
+  /* ---- Footer ---- */
+  footer.site {
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 16px 22px;
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--text-muted);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+  footer.site .spacer { flex: 1; }
+  footer.site .accents {
+    display: inline-flex; gap: 4px; vertical-align: middle; margin: 0 6px 0 2px;
+  }
+  footer.site .accents span {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  }
+  footer.site .accents .a1 { background: var(--orange); }
+  footer.site .accents .a2 { background: var(--blue); }
+  footer.site .accents .a3 { background: var(--green); }
+  footer.site .footer-brand { display: flex; align-items: center; gap: 10px; justify-self: center; }
+  footer.site .footer-note { color: var(--text-faint); justify-self: end; text-align: right; }
+  footer.site .download-tool {
+    display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 4px 9px;
+    border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-size: 12px;
+  }
+  footer.site .download-icon { width: 14px; height: 14px; flex: none; }
+  footer.site .download-tool:hover { background: var(--code-bg); color: var(--text); text-decoration: none; }
+  @media (max-width: 760px) {
+    footer.site { padding: 10px 12px; }
+    footer.site .footer-note { display: none; }
+  }
+  @media (max-width: 480px) {
+    footer.site .download-label { display: none; }
+  }
+</style>
+</head>
+<body>
+<h1 style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;">Agent Trace</h1>
+
+<header class="site">
+  <div class="brand">
+    Agent Trace
+    <span class="dot" aria-hidden="true"></span>
+  </div>
+  <span id="format-tag" class="meta"></span>
+  <span id="count-tag" class="meta"></span>
+  <div class="spacer"></div>
+  <div class="controls-inline" id="filters" style="display: none;">
+    <label><input type="checkbox" id="show-thinking" checked> thinking</label>
+    <label><input type="checkbox" id="show-system" checked> system</label>
+    <label><input type="checkbox" id="show-meta"> meta</label>
+  </div>
+  <nav>
+    <a class="navlink" id="nav-viewer" href="#viewer">Viewer</a>
+    <a class="navlink" id="nav-about" href="#about">About</a>
+  </nav>
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark theme" aria-pressed="false"><span class="theme-icon moon" aria-hidden="true"></span></button>
+  <button id="new-btn" style="display:none;">New</button>
+</header>
+
+<main>
+<nav id="session-nav" style="padding:16px;max-width:920px;margin:auto" hidden>
+  <a id="back-run">← Run sessions</a> · <a id="roundtrips">Complete roundtrips</a> · <a id="raw-log">Download JSONL</a>
+  <p id="session-label"></p>
+  <p>Conversation view merges repeated request history. Complete roundtrips preserve every recorded message, offset, and raw record.</p>
+  <p id="load-status" role="status">Loading session…</p>
+</nav>
+<section id="input-section">
+  <h2>Read your agent transcripts, like a conversation.</h2>
+  <p class="lede">
+    Paste or upload a JSONL session from any coding agent &mdash; <strong>Codex</strong>, <strong>Claude Code</strong>, <strong>ZCode</strong>, and more.
+    Everything runs in your browser &mdash; nothing leaves the page.
+  </p>
+
+  <div class="dropzone" id="dropzone">
+    <textarea id="input" spellcheck="false" placeholder='Paste JSONL here — Codex, Claude Code, ZCode, or any agent log. You can also drop a file on this box or click "Upload file…"'></textarea>
+  </div>
+
+  <div class="input-actions">
+    <button id="render-btn" class="primary">Render</button>
+    <label class="btn" for="file-input">Upload file…</label>
+    <input type="file" id="file-input" accept=".jsonl,.json,.txt,.log">
+    <button id="example-btn">Load example</button>
+    <select id="example-select" aria-label="Example format">
+      <option value="codex">Codex</option>
+      <option value="claude">Claude Code</option>
+      <option value="zcode">ZCode transcript</option>
+      <option value="zcode-io">ZCode model I/O</option>
+      <option value="generic">Generic (OpenAI-style)</option>
+    </select>
+    <button id="clear-btn">Clear</button>
+    <span class="spacer"></span>
+  </div>
+  <div class="hint-row">
+    Tip: drop a <code class="inline">.jsonl</code> file anywhere on this page, or press <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to render.
+  </div>
+  <div id="input-error" class="input-error" style="display:none;"></div>
+</section>
+
+<section id="output" class="empty"></section>
+
+<section id="about-section" class="hidden">
+  <h2>About</h2>
+  <p class="lede">
+    A lightweight, client-side viewer for coding-agent session logs.
+    Point it at a Codex <code class="inline">session.jsonl</code>, a Claude Code
+    <code class="inline">projects/*.jsonl</code> transcript, a ZCode
+    <code class="inline">transcript.jsonl</code> or model-I/O rollout &mdash; or any other
+    agent's JSONL &mdash; and it renders the run as a readable conversation.
+  </p>
+
+  <h3>What gets rendered</h3>
+  <div class="pill-row">
+    <span class="pill user">user</span>
+    <span class="pill assistant">assistant</span>
+    <span class="pill tool">tool / shell</span>
+    <span class="pill thinking">thinking</span>
+    <span class="pill system">system</span>
+  </div>
+  <ul>
+    <li>Auto-detects the layout: Codex, Claude Code, and ZCode (both transcript and model-I/O files), with a best-effort generic mode for any JSONL shaped like chat messages &mdash; Gemini CLI, OpenAI-format exports, and friends.</li>
+    <li>Pairs tool invocations with their outputs (shell commands, file edits, sub-agents).</li>
+    <li>Reconstructs the conversation from ZCode's accumulating request history without duplicating replayed messages.</li>
+    <li>Collapses long outputs behind a disclosure so the timeline stays scannable.</li>
+    <li>Header toggles to hide thinking, system prompts, or low-signal meta events.</li>
+  </ul>
+
+  <h3>Where to find the logs</h3>
+  <ul>
+    <li><strong>Codex:</strong> <code class="inline">~/.codex/sessions/</code></li>
+    <li><strong>Claude Code:</strong> <code class="inline">~/.claude/projects/&lt;project&gt;/*.jsonl</code></li>
+    <li><strong>ZCode:</strong> <code class="inline">~/.zcode/cli/agents/&lt;session&gt;/&lt;agent&gt;/transcript.jsonl</code> and <code class="inline">~/.zcode/cli/rollout/model-io-*.jsonl</code></li>
+  </ul>
+
+  <h3>Privacy</h3>
+  <p>
+    Logs are loaded from the local viewer. No external fonts, analytics, or services are used.
+  </p>
+
+  <h3>How to use it</h3>
+  <ul>
+    <li>Paste JSONL into the textarea, or drag a <code class="inline">.jsonl</code> file onto the page.</li>
+    <li>Press <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd>, or click <strong>Render</strong>.</li>
+    <li>Use the filters in the header to dial the noise floor up or down.</li>
+  </ul>
+</section>
+</main>
+
+<footer class="site">
+  <a id="download-tool" class="download-tool" href="/agent-trace.html" download="agent-trace.html" aria-label="Download Tool (.html)">
+    <svg class="download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+    <span class="download-label">Download Tool</span> <span>(.html)</span>
+  </a>
+  <div class="footer-brand">
+    <span class="accents" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></span>
+    <span>Built by <a href="https://shekkizh.com" target="_blank" rel="noopener">shekkizh</a></span>
+  </div>
+  <span class="footer-note">Runs entirely in your browser.</span>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (sel) => document.querySelector(sel);
+  const downloadTool = $("#download-tool");
+  if (location.protocol === "file:") downloadTool.href = location.href.split(/[?#]/)[0];
+  const input = $("#input");
+  const output = $("#output");
+  const inputSection = $("#input-section");
+  const inputError = $("#input-error");
+  const formatTag = $("#format-tag");
+  const countTag = $("#count-tag");
+  const filtersEl = $("#filters");
+  const newBtn = $("#new-btn");
+  const themeToggle = $("#theme-toggle");
+
+  function setTheme(theme, persist = true) {
+    document.documentElement.dataset.theme = theme;
+    const targetTheme = theme === "dark" ? "light" : "dark";
+    themeToggle.innerHTML = `<span class="theme-icon ${targetTheme === "light" ? "sun" : "moon"}" aria-hidden="true"></span>`;
+    themeToggle.setAttribute("aria-label", `Switch to ${targetTheme} theme`);
+    themeToggle.setAttribute("title", `Switch to ${targetTheme} theme`);
+    themeToggle.setAttribute("aria-pressed", String(theme === "dark"));
+    if (persist) localStorage.setItem("theme", theme);
+  }
+
+  setTheme(document.documentElement.dataset.theme || "light", false);
+  themeToggle.addEventListener("click", () => {
+    setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  });
+
+  // ---- parsing ----
+
+  function parseJsonl(text) {
+    const lines = text.split("\n");
+    const events = [];
+    const errors = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      try {
+        events.push(JSON.parse(line));
+      } catch (e) {
+        errors.push(`Line ${i + 1}: ${e.message}`);
+      }
+    }
+    return { events, errors };
+  }
+
+  const ZCODE_EVENT_TYPES = new Set([
+    "turn_started", "turn_complete", "model_request", "model_complete", "model_streaming",
+    "tool_call_scheduled", "tool_batch_complete", "model_network_status",
+    "streaming_tool_ledger_updated", "stream_recovery_anchor_created",
+  ]);
+
+  function detectFormat(events) {
+    if (!events.length) return "unknown";
+    // Codex: payload + type === "session_meta" / "response_item" / "event_msg"
+    // ZCode transcript: turn/model/tool lifecycle events with sessionId + traceId
+    // ZCode model-io rollout: one {type:"model_io", request, response} per line
+    // Claude: uuid + sessionId
+    for (const e of events.slice(0, 20)) {
+      if (!e || typeof e !== "object") continue;
+      if ((e.type === "model_io" || (e.request && e.response)) && (e.request || e.response)) return "zcode-io";
+      if (ZCODE_EVENT_TYPES.has(e.type)) return "zcode";
+      if (e.payload && e.type && ["session_meta", "response_item", "event_msg", "turn_context"].includes(e.type)) return "codex";
+    }
+    for (const e of events.slice(0, 20)) {
+      if (!e || typeof e !== "object") continue;
+      if (e.uuid && e.sessionId) return "claude";
+      if (e.sessionId && e.traceId && e.sequenceNumber !== undefined) return "zcode";
+      if (e.sessionId && e.request && e.response) return "zcode-io";
+    }
+    return "generic";
+  }
+
+  // ---- helpers ----
+
+  function escapeHtml(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return "";
+    try {
+      const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
+      if (isNaN(d)) return "";
+      return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+    } catch { return ""; }
+  }
+
+  function el(tag, attrs, ...children) {
+    const e = document.createElement(tag);
+    if (attrs) {
+      for (const k in attrs) {
+        if (k === "class") e.className = attrs[k];
+        else if (k === "text") e.textContent = attrs[k];
+        else if (k === "html") e.innerHTML = attrs[k];
+        else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
+        else if (attrs[k] !== null && attrs[k] !== undefined) e.setAttribute(k, attrs[k]);
+      }
+    }
+    for (const c of children) {
+      if (c == null || c === false) continue;
+      if (Array.isArray(c)) c.forEach(x => x && e.appendChild(x));
+      else if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else e.appendChild(c);
+    }
+    return e;
+  }
+
+  function head(label, ts, ...tags) {
+    const children = [el("span", { class: "label", text: label })];
+    if (ts) children.push(el("span", { class: "ts", text: fmtTime(ts) }));
+    for (const t of tags) {
+      if (t) children.push(el("span", { class: "tag", text: t }));
+    }
+    return el("div", { class: "event-head" }, ...children);
+  }
+
+  function bubble(kind, headEl, ...body) {
+    const b = el("div", { class: `bubble ${kind}` }, headEl, ...body);
+    return el("div", { class: `event event-${kind}` }, b);
+  }
+
+  function systemNote(text) {
+    return el("div", { class: "event" },
+      el("div", { class: "bubble system-note", text }));
+  }
+
+  function prose(text) {
+    // Render simple markdown-ish: keep whitespace, no HTML injection.
+    return el("div", { class: "body", text: text });
+  }
+
+  function collapsibleBlock(summary, text, { open = false, mono = true, maxLines = 0 } = {}) {
+    const d = el("details", open ? { open: "" } : {});
+    d.appendChild(el("summary", { text: summary }));
+    const pre = el("pre", { class: mono ? "" : "body", text: text || "" });
+    d.appendChild(pre);
+    return d;
+  }
+
+  function shouldCollapse(text, threshold = 500) {
+    if (!text) return false;
+    if (text.length > threshold) return true;
+    if ((text.match(/\n/g) || []).length > 8) return true;
+    return false;
+  }
+
+  // ---- Codex format ----
+
+  function renderCodex(events) {
+    const frag = document.createDocumentFragment();
+    const toolCalls = new Map(); // call_id -> { argsText, name }
+    const seenPatchIds = new Set();
+    const seenExecIds = new Set();
+    let currentTurn = null;
+    let turnStarted = 0;
+
+    for (const e of events) {
+      if (!e || typeof e !== "object") continue;
+      const ts = e.timestamp;
+
+      if (e.type === "session_meta") {
+        const p = e.payload || {};
+        frag.appendChild(renderSessionMeta(p, ts));
+        continue;
+      }
+
+      if (e.type === "turn_context") {
+        continue; // skip
+      }
+
+      if (e.type === "event_msg") {
+        const p = e.payload || {};
+        if (p.type === "task_started") {
+          turnStarted = p.started_at || null;
+          if (currentTurn !== p.turn_id) {
+            currentTurn = p.turn_id;
+            frag.appendChild(systemNote(`▼ Turn started${p.turn_id ? ` · ${short(p.turn_id)}` : ""}`));
+          }
+          continue;
+        }
+        if (p.type === "task_complete") {
+          const dur = p.duration_ms ? ` · ${(p.duration_ms / 1000).toFixed(1)}s` : "";
+          frag.appendChild(systemNote(`▲ Turn complete${dur}`));
+          continue;
+        }
+        if (p.type === "user_message") {
+          frag.appendChild(renderCodexUser(p.message, ts));
+          continue;
+        }
+        if (p.type === "agent_message") {
+          // Prefer response_item.message; skip here (response_item tends to follow with same content).
+          continue;
+        }
+        if (p.type === "token_count") {
+          frag.appendChild(renderTokenCount(p.info));
+          continue;
+        }
+        if (p.type === "exec_command_end") {
+          if (p.call_id) seenExecIds.add(p.call_id);
+          frag.appendChild(renderExec(p, ts));
+          continue;
+        }
+        if (p.type === "patch_apply_end") {
+          if (p.call_id) seenPatchIds.add(p.call_id);
+          frag.appendChild(renderPatchApply(p, ts));
+          continue;
+        }
+        if (p.type === "error") {
+          frag.appendChild(bubble("error", head("Error", ts), prose(p.message || JSON.stringify(p))));
+          continue;
+        }
+        // Other event_msg subtypes: ignore silently or tag as system
+        if (classify.showMeta) frag.appendChild(systemNote(`event_msg: ${p.type || "?"}`));
+        continue;
+      }
+
+      if (e.type === "response_item") {
+        const p = e.payload || {};
+        if (p.type === "message") {
+          if (p.role === "user") {
+            // Skip shell-command "user" messages that duplicate exec_command_end
+            const txt = extractTextFromContent(p.content);
+            if (/^<user_shell_command>/.test(txt) || /^<environment_context>/.test(txt)) {
+              if (classify.showMeta) {
+                frag.appendChild(renderEnvOrShell(txt, ts));
+              }
+              continue;
+            }
+            frag.appendChild(renderCodexUser(txt, ts));
+          } else if (p.role === "assistant") {
+            frag.appendChild(renderAssistantText(extractTextFromContent(p.content), ts, p.phase));
+          } else if (p.role === "developer") {
+            if (classify.showSystem) {
+              const txt = extractTextFromContent(p.content);
+              frag.appendChild(renderDeveloper(txt, ts));
+            }
+          }
+          continue;
+        }
+        if (p.type === "reasoning") {
+          if (classify.showThinking) frag.appendChild(renderCodexReasoning(p, ts));
+          continue;
+        }
+        if (p.type === "function_call") {
+          toolCalls.set(p.call_id, { name: p.name, arguments: p.arguments, ts });
+          continue;
+        }
+        if (p.type === "function_call_output") {
+          // If exec_command_end already rendered, skip.
+          if (seenExecIds.has(p.call_id)) continue;
+          const call = toolCalls.get(p.call_id);
+          frag.appendChild(renderFunctionCall(call, p, ts));
+          continue;
+        }
+        if (p.type === "custom_tool_call") {
+          toolCalls.set(p.call_id, { name: p.name, input: p.input, ts, custom: true });
+          continue;
+        }
+        if (p.type === "custom_tool_call_output") {
+          if (seenPatchIds.has(p.call_id)) continue;
+          const call = toolCalls.get(p.call_id);
+          frag.appendChild(renderCustomToolCall(call, p, ts));
+          continue;
+        }
+        continue;
+      }
+    }
+
+    return frag;
+  }
+
+  function short(s) { return s ? String(s).slice(0, 8) : ""; }
+
+  function renderSessionMeta(p, ts) {
+    const lines = [];
+    if (p.originator) lines.push(`originator: ${p.originator}`);
+    if (p.cli_version) lines.push(`cli_version: ${p.cli_version}`);
+    if (p.model_provider) lines.push(`provider: ${p.model_provider}`);
+    if (p.cwd) lines.push(`cwd: ${p.cwd}`);
+    if (p.id) lines.push(`session_id: ${p.id}`);
+    const detail = collapsibleBlock("base_instructions", (p.base_instructions && p.base_instructions.text) || "", { mono: false });
+    const body = el("div", {},
+      el("div", { class: "body mono", text: lines.join("\n") }),
+      (p.base_instructions && p.base_instructions.text) ? detail : null
+    );
+    return bubble("system-meta",
+      head("Session", ts || p.timestamp, "codex"),
+      body
+    );
+  }
+
+  function renderCodexUser(text, ts) {
+    if (typeof text !== "string") text = extractTextFromContent(text);
+    return bubble("user", head("User", ts), prose(text || "(empty)"));
+  }
+
+  function renderEnvOrShell(text, ts) {
+    return bubble("system-meta", head("Context", ts),
+      collapsibleBlock("show", text, { mono: true }));
+  }
+
+  function renderDeveloper(text, ts, label) {
+    return bubble("system-meta", head(label || "Developer", ts, "system prompt"),
+      collapsibleBlock("show", text, { mono: false }));
+  }
+
+  function renderAssistantText(text, ts, phase) {
+    const tag = phase === "final_answer" ? "final" : phase;
+    return bubble("assistant", head("Assistant", ts, tag),
+      prose(text || "(empty)"));
+  }
+
+  function renderCodexReasoning(p, ts) {
+    const summary = Array.isArray(p.summary) && p.summary.length
+      ? p.summary.map(s => typeof s === "string" ? s : (s.text || JSON.stringify(s))).join("\n\n")
+      : null;
+    const body = summary
+      ? prose(summary)
+      : el("div", { class: "muted", text: "(encrypted reasoning)" });
+    return bubble("thinking", head("Thinking", ts, "reasoning"), body);
+  }
+
+  function renderTokenCount(info) {
+    if (!classify.showMeta) return document.createDocumentFragment();
+    if (!info || !info.last_token_usage) return document.createDocumentFragment();
+    const u = info.last_token_usage;
+    const txt = `tokens: in=${u.input_tokens} cached=${u.cached_input_tokens} out=${u.output_tokens} reasoning=${u.reasoning_output_tokens}`;
+    return el("div", { class: "stats", text: txt });
+  }
+
+  function renderExec(p, ts) {
+    const cmd = Array.isArray(p.command)
+      ? p.command.map(c => /[\s"'$`\\]/.test(c) ? JSON.stringify(c) : c).join(" ")
+      : (p.parsed_cmd && p.parsed_cmd[0] && p.parsed_cmd[0].cmd) || JSON.stringify(p.command || "");
+    const out = p.aggregated_output || [p.stdout, p.stderr].filter(Boolean).join("\n");
+    const ok = p.exit_code === 0;
+    const statusTag = ok ? "ok" : `exit ${p.exit_code}`;
+    const bodyChildren = [
+      el("div", { class: "tool-cmd" },
+        el("span", { class: "prompt", text: "$ " }),
+        document.createTextNode(cmd)
+      ),
+    ];
+    if (out) {
+      const isLong = shouldCollapse(out);
+      if (isLong) {
+        const d = el("details", {});
+        d.appendChild(el("summary", { text: `output (${out.length} chars)` }));
+        d.appendChild(el("div", { class: `tool-result${ok ? "" : " is-error"}`, text: out }));
+        bodyChildren.push(d);
+      } else {
+        bodyChildren.push(el("div", { class: `tool-result${ok ? "" : " is-error"}`, text: out }));
+      }
+    }
+    if (p.duration && p.duration.secs !== undefined) {
+      const dur = p.duration.secs + (p.duration.nanos || 0) / 1e9;
+      bodyChildren.push(el("div", { class: "tool-meta", text: `${dur.toFixed(2)}s · cwd=${p.cwd || ""}` }));
+    }
+    return bubble("tool", head("Shell", ts, statusTag), ...bodyChildren);
+  }
+
+  function renderPatchApply(p, ts) {
+    const changes = p.changes || {};
+    const summary = Object.entries(changes).map(([path, ch]) => {
+      const op = ch.type === "add" ? "add" : ch.type;
+      return `${op}  ${path}`;
+    }).join("\n") || (p.stdout || "");
+    const children = [el("div", { class: "tool-cmd", text: summary || "(no changes)" })];
+    if (p.stdout) {
+      children.push(el("div", { class: "tool-meta", text: p.stdout.trim() }));
+    }
+    return bubble("tool", head("Patch", ts, p.success ? "applied" : "failed"), ...children);
+  }
+
+  function renderFunctionCall(call, outp, ts) {
+    const name = call ? call.name : "tool";
+    let argsStr = "";
+    if (call && call.arguments) {
+      try {
+        argsStr = JSON.stringify(JSON.parse(call.arguments), null, 2);
+      } catch { argsStr = call.arguments; }
+    }
+    const children = [];
+    if (argsStr) children.push(el("pre", { text: argsStr }));
+    const out = extractTextFromContent(outp.output);
+    if (out) {
+      if (shouldCollapse(out)) {
+        const d = el("details", {});
+        d.appendChild(el("summary", { text: `output (${out.length} chars)` }));
+        d.appendChild(el("div", { class: "tool-result", text: out }));
+        children.push(d);
+      } else {
+        children.push(el("div", { class: "tool-result", text: out }));
+      }
+    }
+    return bubble("tool", head(name, ts, "function_call"), ...children);
+  }
+
+  function renderCustomToolCall(call, outp, ts) {
+    const name = (call && call.name) || "tool";
+    const input = call && call.input;
+    const children = [];
+    if (input) {
+      if (shouldCollapse(input)) {
+        const d = el("details", { open: "" });
+        d.appendChild(el("summary", { text: `input (${input.length} chars)` }));
+        d.appendChild(el("pre", { text: input }));
+        children.push(d);
+      } else {
+        children.push(el("pre", { text: input }));
+      }
+    }
+    const rawOutput = extractTextFromContent(outp.output);
+    let outTxt = "";
+    try {
+      const parsed = JSON.parse(rawOutput);
+      outTxt = extractTextFromContent(parsed.output || rawOutput);
+    } catch { outTxt = rawOutput; }
+    if (outTxt) {
+      children.push(el("div", { class: "tool-result", text: outTxt.trim() }));
+    }
+    return bubble("tool", head(name, ts, "custom_tool"), ...children);
+  }
+
+  function extractTextFromContent(content) {
+    if (content == null) return "";
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return JSON.stringify(content);
+    return content.map(c => {
+      if (typeof c === "string") return c;
+      if (c && (c.type === "input_text" || c.type === "output_text" || c.type === "text")) return c.text || "";
+      if (c && ["image", "input_image", "output_image"].includes(c.type)) return "[image]";
+      return "";
+    }).join("\n");
+  }
+
+  // ---- Claude Code format ----
+
+  function renderClaude(events) {
+    const frag = document.createDocumentFragment();
+    const toolUses = new Map(); // id -> { name, input, ts }
+    let firstSession = true;
+
+    for (const e of events) {
+      if (!e || typeof e !== "object") continue;
+      const ts = e.timestamp;
+
+      if (e.type === "file-history-snapshot" || e.type === "last-prompt" || e.type === "permission-mode") {
+        if (classify.showMeta) {
+          let label = e.type;
+          if (e.type === "permission-mode") label = `permission: ${e.permissionMode}`;
+          frag.appendChild(systemNote(label));
+        }
+        continue;
+      }
+
+      if (e.type === "system") {
+        if (e.subtype === "compact_boundary") {
+          const pre = e.compactMetadata ? ` (${e.compactMetadata.preTokens || "?"} → ${e.compactMetadata.postTokens || "?"} tokens)` : "";
+          frag.appendChild(systemNote(`━━━ compact boundary${pre} ━━━`));
+          continue;
+        }
+        if (classify.showSystem) {
+          if (e.subtype === "turn_duration") {
+            frag.appendChild(el("div", { class: "stats", text: `turn duration: ${(e.durationMs / 1000).toFixed(1)}s · ${e.messageCount} messages` }));
+          } else if (e.subtype === "away_summary") {
+            frag.appendChild(bubble("system-meta", head("Away summary", ts), prose(e.content || "")));
+          } else {
+            frag.appendChild(systemNote(`${e.subtype || "system"}`));
+          }
+        }
+        continue;
+      }
+
+      if (e.type === "user") {
+        const msg = e.message;
+        if (!msg) continue;
+        const content = msg.content;
+        // Tool result (array with tool_result)
+        if (Array.isArray(content)) {
+          for (const c of content) {
+            if (c && c.type === "tool_result") {
+              const tu = toolUses.get(c.tool_use_id);
+              frag.appendChild(renderClaudeToolResult(tu, c, ts));
+            } else if (c && c.type === "text") {
+              // Special slash commands / system injections
+              const t = c.text || "";
+              if (/^\[Request interrupted by user\]$/.test(t)) {
+                frag.appendChild(systemNote("⟲ request interrupted by user"));
+              } else {
+                frag.appendChild(renderClaudeUserText(t, ts, e));
+              }
+            }
+          }
+          continue;
+        }
+        // Plain string content
+        const text = typeof content === "string" ? content : "";
+        if (!text) continue;
+        if (e.isMeta) {
+          if (classify.showMeta) frag.appendChild(systemNote(text.slice(0, 160)));
+          continue;
+        }
+        if (e.isCompactSummary) {
+          if (classify.showMeta) {
+            frag.appendChild(bubble("system-meta", head("Compact summary", ts), collapsibleBlock("show", text, { mono: false })));
+          }
+          continue;
+        }
+        frag.appendChild(renderClaudeUserText(text, ts, e));
+        continue;
+      }
+
+      if (e.type === "assistant") {
+        const msg = e.message;
+        if (!msg) continue;
+        const content = msg.content;
+        if (!Array.isArray(content)) continue;
+        for (const c of content) {
+          if (!c || typeof c !== "object") continue;
+          if (c.type === "text") {
+            frag.appendChild(renderAssistantText(c.text || "", ts));
+          } else if (c.type === "thinking") {
+            if (classify.showThinking) {
+              const txt = c.thinking || "(encrypted thinking)";
+              frag.appendChild(bubble("thinking", head("Thinking", ts, "reasoning"),
+                txt === "" || txt === "(encrypted thinking)"
+                  ? el("div", { class: "muted", text: "(encrypted thinking)" })
+                  : prose(txt)));
+            }
+          } else if (c.type === "tool_use") {
+            toolUses.set(c.id, { name: c.name, input: c.input, ts });
+            // Render immediately; output will follow.
+            frag.appendChild(renderClaudeToolUse(c, ts));
+          }
+        }
+        continue;
+      }
+
+      if (e.type === "attachment") {
+        const att = e.attachment;
+        if (!att) continue;
+        if (att.type === "file") {
+          const f = att.content && att.content.file;
+          const title = att.displayPath || (f && f.filePath) || "file";
+          const content = (f && f.content) || "";
+          const lines = (content.match(/\n/g) || []).length;
+          frag.appendChild(el("div", { class: "event" },
+            el("div", { class: "bubble" },
+              head("Attached file", ts, title),
+              collapsibleBlock(`${lines} lines`, content, { mono: true })
+            )));
+          continue;
+        }
+        if (att.type === "deferred_tools_delta") {
+          if (classify.showMeta) {
+            frag.appendChild(systemNote(`tools available: ${(att.addedNames || []).join(", ")}`));
+          }
+          continue;
+        }
+        if (att.type === "skill_listing") {
+          if (classify.showMeta) {
+            frag.appendChild(el("div", { class: "event" },
+              el("div", { class: "bubble" },
+                head("Skills", ts, `${att.skillCount || "?"} available`),
+                collapsibleBlock("show", att.content || "", { mono: false })
+              )));
+          }
+          continue;
+        }
+        if (att.type === "opened_file_in_ide") {
+          if (classify.showMeta) frag.appendChild(systemNote(`opened in IDE: ${att.filename}`));
+          continue;
+        }
+        if (att.type === "diagnostics") {
+          const items = (att.files || []).flatMap(f =>
+            (f.diagnostics || []).map(d => `${f.uri.replace(/^file:\/\//, "")}:${d.range.start.line + 1}  [${d.severity}] ${d.message}`)
+          );
+          if (items.length && classify.showSystem) {
+            frag.appendChild(bubble("system-meta", head("Diagnostics", ts), el("div", { class: "body mono", text: items.join("\n") })));
+          }
+          continue;
+        }
+        if (att.type === "task_reminder") {
+          continue; // always skip
+        }
+        if (classify.showMeta) {
+          frag.appendChild(systemNote(`attachment: ${att.type}`));
+        }
+        continue;
+      }
+    }
+
+    return frag;
+  }
+
+  function renderClaudeUserText(text, ts, event) {
+    // Detect bash-input / bash-stdout wrappers commonly seen in claude code transcripts.
+    const cmdMatch = text.match(/^<bash-input>([\s\S]*)<\/bash-input>$/);
+    if (cmdMatch) {
+      return bubble("user", head("User bash", ts),
+        el("div", { class: "tool-cmd" },
+          el("span", { class: "prompt", text: "$ " }),
+          document.createTextNode(cmdMatch[1])
+        ));
+    }
+    const outMatch = text.match(/^<bash-stdout>([\s\S]*?)<\/bash-stdout>(?:<bash-stderr>([\s\S]*?)<\/bash-stderr>)?$/);
+    if (outMatch) {
+      const stdout = outMatch[1];
+      const stderr = outMatch[2] || "";
+      return bubble("tool", head("Bash output", ts),
+        stdout && el("div", { class: "tool-result", text: stdout }),
+        stderr && el("div", { class: "tool-result is-error", text: stderr }),
+      );
+    }
+    // Detect slash commands
+    const cmdEl = text.match(/<command-name>([^<]+)<\/command-name>/);
+    if (cmdEl) {
+      const argsM = text.match(/<command-args>([\s\S]*?)<\/command-args>/);
+      const outM = text.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
+      const children = [
+        el("div", { class: "tool-cmd" },
+          el("span", { class: "prompt", text: "/" }),
+          document.createTextNode(cmdEl[1] + (argsM && argsM[1] ? " " + argsM[1] : ""))
+        ),
+      ];
+      if (outM && outM[1]) children.push(el("div", { class: "tool-result", text: outM[1] }));
+      return bubble("user", head("Slash command", ts), ...children);
+    }
+    // Caveat messages from local commands
+    if (/^<local-command-caveat>/.test(text)) {
+      if (classify.showMeta) {
+        return systemNote(text.replace(/<\/?local-command-caveat>/g, "").slice(0, 140) + "…");
+      }
+      return document.createDocumentFragment();
+    }
+    return bubble("user", head("User", ts), prose(text));
+  }
+
+  function renderClaudeToolUse(c, ts) {
+    const name = c.name;
+    const input = c.input || {};
+    // Bash-specific rendering: show the command line.
+    if (name === "Bash") {
+      const cmd = input.command || "";
+      const desc = input.description || "";
+      return bubble("tool", head("Bash", ts, desc),
+        el("div", { class: "tool-cmd" },
+          el("span", { class: "prompt", text: "$ " }),
+          document.createTextNode(cmd)
+        ));
+    }
+    if (name === "Read") {
+      return bubble("tool", head("Read", ts, input.file_path || ""));
+    }
+    if (name === "Edit") {
+      const oldS = input.old_string || "";
+      const newS = input.new_string || "";
+      return bubble("tool", head("Edit", ts, input.file_path || ""),
+        oldS && collapsibleBlock(`- old (${oldS.length})`, oldS, { mono: true }),
+        newS && collapsibleBlock(`+ new (${newS.length})`, newS, { mono: true, open: true })
+      );
+    }
+    if (name === "Write") {
+      const content = input.content || "";
+      return bubble("tool", head("Write", ts, input.file_path || ""),
+        collapsibleBlock(`content (${content.length} chars)`, content, { mono: true })
+      );
+    }
+    if (name === "Agent") {
+      return bubble("tool", head("Agent", ts, input.subagent_type || input.description || ""),
+        collapsibleBlock("prompt", input.prompt || "", { mono: false })
+      );
+    }
+    // Generic
+    const str = JSON.stringify(input, null, 2);
+    return bubble("tool", head(name || "tool", ts, "tool_use"),
+      shouldCollapse(str)
+        ? collapsibleBlock(`input (${str.length})`, str)
+        : el("pre", { text: str })
+    );
+  }
+
+  function renderClaudeToolResult(tu, c, ts) {
+    const name = tu ? tu.name : "tool";
+    let text = "";
+    if (typeof c.content === "string") text = c.content;
+    else if (Array.isArray(c.content)) text = c.content.map(x => x.text || "").join("\n");
+    else text = JSON.stringify(c.content || "");
+
+    const isErr = !!c.is_error;
+    // For Read results, we often don't need to re-show the file content (already paged).
+    if (name === "Read" && !isErr) {
+      const lines = (text.match(/\n/g) || []).length;
+      return bubble("tool", head("Read", ts, `${lines} lines read`),
+        collapsibleBlock("show", text, { mono: true }));
+    }
+    if (name === "Bash" || name === "Write" || name === "Edit" || !text) {
+      if (!text) return document.createDocumentFragment();
+      if (shouldCollapse(text)) {
+        return el("div", { class: "event" },
+          el("div", { class: `bubble tool` },
+            head(name || "tool", ts, isErr ? "error" : "result"),
+            collapsibleBlock(`output (${text.length} chars)`, text)
+          ));
+      }
+      return bubble("tool", head(name || "tool", ts, isErr ? "error" : "result"),
+        el("div", { class: `tool-result${isErr ? " is-error" : ""}`, text: text }));
+    }
+    if (shouldCollapse(text)) {
+      return el("div", { class: "event" },
+        el("div", { class: "bubble tool" },
+          head(name || "tool", ts, isErr ? "error" : "result"),
+          collapsibleBlock(`output (${text.length} chars)`, text)
+        ));
+    }
+    return bubble("tool", head(name || "tool", ts, isErr ? "error" : "result"),
+      el("div", { class: `tool-result${isErr ? " is-error" : ""}`, text: text }));
+  }
+
+  // ---- ZCode format (transcript.jsonl + model-io rollouts) ----
+  //
+  // ZCode logs the conversation twice over: each `model_request` event carries the
+  // full message history sent to the model, so messages replay across events. We
+  // reconstruct the timeline by rendering only messages not seen before, and use
+  // `tool_call_scheduled` / `turn_complete` for pieces that never appear in history.
+
+  function zcState() {
+    return {
+      frag: document.createDocumentFragment(),
+      calls: new Map(),          // toolCallId -> { name, input, rendered }
+      seenResults: new Set(),
+      seenMsgs: new Set(),       // serialized chat messages already rendered
+      seenAssistant: new Set(),  // assistant texts already rendered
+      seenThinking: new Set(),   // reasoning texts already rendered
+      seenUser: new Set(),       // user prompts already rendered (turn inputs)
+      sysSeen: false,            // any system prompt encountered
+    };
+  }
+
+  function zcKey(msg) {
+    try { return JSON.stringify(msg); }
+    catch { return (msg && msg.role) + ":" + zcTextOfContent(msg && msg.content).slice(0, 200); }
+  }
+
+  function zcTextOfContent(content) {
+    if (content == null) return "";
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return JSON.stringify(content);
+    return content.map(c => {
+      if (typeof c === "string") return c;
+      if (!c || typeof c !== "object") return "";
+      if (typeof c.text === "string") return c.text;
+      if (typeof c.thinking === "string") return c.thinking;
+      if (typeof c.content === "string") return c.content;
+      if (["image", "input_image", "output_image", "image_url"].includes(c.type)) return "[image]";
+      return "";
+    }).join("\n");
+  }
+
+  function zcThinking(txt, ts) {
+    const body = txt
+      ? prose(txt)
+      : el("div", { class: "muted", text: "(no reasoning text recorded)" });
+    return bubble("thinking", head("Thinking", ts, "reasoning"), body);
+  }
+
+  function zcToolCall(name, input, ts) {
+    const inputStr = input == null ? "" : (typeof input === "string" ? input : JSON.stringify(input, null, 2));
+    const children = [];
+    if (inputStr && inputStr !== "{}") {
+      children.push(shouldCollapse(inputStr)
+        ? collapsibleBlock(`input (${inputStr.length} chars)`, inputStr)
+        : el("pre", { text: inputStr }));
+    }
+    return bubble("tool", head(name || "tool", ts, "call"), ...children);
+  }
+
+  function zcToolResult(name, text, ts, isErr, tag) {
+    if (!text) return document.createDocumentFragment();
+    if (shouldCollapse(text)) {
+      return bubble("tool", head(name, ts, isErr ? "error" : (tag || "result")),
+        collapsibleBlock(`output (${text.length} chars)`, text));
+    }
+    return bubble("tool", head(name, ts, isErr ? "error" : (tag || "result")),
+      el("div", { class: `tool-result${isErr ? " is-error" : ""}`, text }));
+  }
+
+  function zcRenderUserText(txt, ctx, ts) {
+    if (!txt) return false;
+    if (/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/.test(txt)) {
+      if (classify.showMeta) ctx.frag.appendChild(renderEnvOrShell(txt, ts));
+      return true;
+    }
+    if (ctx.seenUser.has(txt)) return false;
+    ctx.seenUser.add(txt);
+    ctx.frag.appendChild(renderCodexUser(txt, ts));
+    return true;
+  }
+
+  // Render one chat message (system/user/assistant/tool with string or block-array
+  // content). Returns true if anything was appended.
+  function zcRenderMessage(msg, ctx, ts) {
+    if (!msg || typeof msg !== "object") return false;
+    const role = String(msg.role || "").toLowerCase();
+    const content = msg.content;
+
+    if (role === "system" || role === "developer") {
+      ctx.sysSeen = true;
+      const txt = zcTextOfContent(content);
+      if (!txt) return false;
+      if (classify.showSystem) ctx.frag.appendChild(renderDeveloper(txt, ts, "System"));
+      return true;
+    }
+
+    if (role === "tool" || role === "tool_result") {
+      const id = msg.toolCallId || msg.tool_call_id || msg.tool_use_id;
+      const call = id ? ctx.calls.get(id) : null;
+      const name = msg.toolName || msg.name || (call && call.name) || "tool";
+      const txt = zcTextOfContent(content);
+      const isErr = !!(msg.isError || msg.is_error);
+      const resultKey = JSON.stringify([id, txt, isErr]);
+      if (id && ctx.seenResults.has(resultKey)) return false;
+      if (id) ctx.seenResults.add(resultKey);
+      ctx.frag.appendChild(zcToolResult(name, txt, ts, isErr, id ? `id ${short(id)}` : ""));
+      if (id && !call) ctx.calls.set(id, { name, input: "", rendered: true });
+      return true;
+    }
+
+    if (Array.isArray(content)) {
+      let rendered = false;
+      for (const b of content) {
+        if (!b || typeof b !== "object") continue;
+        const t = String(b.type || "").toLowerCase();
+        if (t === "text" || t === "input_text" || t === "output_text") {
+          const txt = b.text || "";
+          if (role === "user") rendered = zcRenderUserText(txt, ctx, ts) || rendered;
+          else if (txt && !ctx.seenAssistant.has(txt)) {
+            ctx.seenAssistant.add(txt);
+            ctx.frag.appendChild(renderAssistantText(txt, ts));
+            rendered = true;
+          }
+        } else if (t === "thinking" || t === "reasoning" || t === "redacted_thinking") {
+          const txt = b.thinking || b.text || "";
+          if (txt) {
+            if (ctx.seenThinking.has(txt)) continue;
+            ctx.seenThinking.add(txt);
+          }
+          if (classify.showThinking) ctx.frag.appendChild(zcThinking(txt, ts));
+          rendered = true;
+        } else if (t === "tool_use" || t === "tool_call") {
+          const id = b.id || b.toolCallId || b.call_id;
+          const prev = id ? ctx.calls.get(id) : null;
+          if (prev && prev.rendered) continue;
+          if (id) ctx.calls.set(id, { name: b.name || (prev && prev.name) || "tool", input: b.input != null ? b.input : (prev && prev.input), rendered: true });
+          ctx.frag.appendChild(zcToolCall(b.name || "tool", b.input, ts));
+          rendered = true;
+        } else if (t === "tool_result" || t === "tool") {
+          const id = b.tool_use_id || b.toolCallId || b.tool_call_id;
+          const call = id ? ctx.calls.get(id) : null;
+          const name = b.name || (call && call.name) || "tool";
+          const txt = zcTextOfContent(b.content != null ? b.content : b);
+          const isErr = !!(b.is_error || b.isError);
+          const resultKey = JSON.stringify([id, txt, isErr]);
+          if (id && ctx.seenResults.has(resultKey)) continue;
+          if (id) ctx.seenResults.add(resultKey);
+          ctx.frag.appendChild(zcToolResult(name, txt, ts, isErr, id ? `id ${short(id)}` : ""));
+          if (id && !call) ctx.calls.set(id, { name, input: "", rendered: true });
+          rendered = true;
+        } else if (["image", "input_image", "output_image", "image_url"].includes(t)) {
+          ctx.frag.appendChild(systemNote("[image]"));
+          rendered = true;
+        }
+      }
+      return rendered;
+    }
+
+    const txt = zcTextOfContent(content);
+    if (!txt) return false;
+    if (role === "user") return zcRenderUserText(txt, ctx, ts);
+    if (ctx.seenAssistant.has(txt)) return false;
+    ctx.seenAssistant.add(txt);
+    ctx.frag.appendChild(renderAssistantText(txt, ts));
+    return true;
+  }
+
+  function renderZCode(events) {
+    const ctx = zcState();
+    const SILENT = new Set(["model_streaming", "streaming_tool_ledger_updated", "stream_recovery_anchor_created", "model_network_status"]);
+    for (const e of events) {
+      if (!e || typeof e !== "object") continue;
+      const ts = e.timestamp;
+      const p = (e.payload && typeof e.payload === "object") ? e.payload : {};
+
+      if (e.type === "turn_started") {
+        ctx.frag.appendChild(systemNote(`▼ Turn started${p.turnNumber != null ? ` · #${p.turnNumber}` : ""}`));
+        if (p.input) zcRenderUserText(p.input, ctx, ts);
+        continue;
+      }
+
+      if (e.type === "model_request") {
+        for (const m of (Array.isArray(p.messages) ? p.messages : [])) {
+          const key = zcKey(m);
+          if (ctx.seenMsgs.has(key)) continue;
+          ctx.seenMsgs.add(key);
+          zcRenderMessage(m, ctx, ts);
+        }
+        continue;
+      }
+
+      if (e.type === "tool_call_scheduled") {
+        const id = p.toolCallId;
+        const prev = id ? ctx.calls.get(id) : null;
+        if (prev && prev.rendered) continue;
+        if (id) ctx.calls.set(id, { name: p.toolName || (prev && prev.name) || "tool", input: p.input != null ? p.input : (prev && prev.input), rendered: true });
+        ctx.frag.appendChild(zcToolCall(p.toolName || "tool", p.input, ts));
+        continue;
+      }
+
+      if (e.type === "model_complete") {
+        const u = p.usage;
+        if (u && classify.showMeta) {
+          ctx.frag.appendChild(el("div", { class: "stats", text:
+            `tokens: in=${u.inputTokens ?? "?"} cached=${u.cacheReadTokens ?? 0} out=${u.outputTokens ?? "?"} · stop=${p.stopReason || "?"}` }));
+        }
+        const txt = p.content;
+        if (typeof txt === "string" && txt.trim() && !ctx.seenAssistant.has(txt)) {
+          ctx.seenAssistant.add(txt);
+          ctx.frag.appendChild(renderAssistantText(txt, ts, p.stopReason === "stop" ? "final" : p.stopReason));
+        }
+        continue;
+      }
+
+      if (e.type === "turn_complete") {
+        const txt = p.response != null ? p.response : p.content;
+        if (typeof txt === "string" && txt.trim() && !ctx.seenAssistant.has(txt)) {
+          ctx.seenAssistant.add(txt);
+          ctx.frag.appendChild(renderAssistantText(txt, ts, "final"));
+        }
+        ctx.frag.appendChild(systemNote("▲ Turn complete"));
+        continue;
+      }
+
+      if (!SILENT.has(e.type) && classify.showMeta) {
+        ctx.frag.appendChild(systemNote(`zcode: ${e.type || "?"}`));
+      }
+    }
+    return ctx.frag;
+  }
+
+  function renderZCodeIO(events) {
+    const ctx = zcState();
+    let metaShown = false;
+    for (const e of events) {
+      if (!e || typeof e !== "object" || !(e.type === "model_io" || (e.request && e.response))) continue;
+      const ts = e.startedAt || e.completedAt;
+
+      if (!metaShown) {
+        metaShown = true;
+        const m = e.model || {};
+        const lines = [];
+        if (e.sessionId) lines.push(`session_id: ${e.sessionId}`);
+        if (m.modelId) lines.push(`model: ${m.modelId}`);
+        if (m.providerId) lines.push(`provider: ${m.providerId}`);
+        if (e.querySource) lines.push(`query_source: ${e.querySource}`);
+        ctx.frag.appendChild(bubble("system-meta", head("Session", ts, "zcode"),
+          el("div", { class: "body mono", text: lines.join("\n") })));
+      }
+
+      const req = e.request || {};
+      const body = req.body || req;
+      const msgs = Array.isArray(body.messages) ? body.messages : (Array.isArray(req.messages) ? req.messages : []);
+      for (const m of msgs) {
+        const key = zcKey(m);
+        if (ctx.seenMsgs.has(key)) continue;
+        ctx.seenMsgs.add(key);
+        zcRenderMessage(m, ctx, ts);
+      }
+      // Some bodies carry the system prompt as a `system` array instead of a message.
+      const sys = body.system;
+      if (!ctx.sysSeen && Array.isArray(sys) && sys.length) {
+        const txt = sys.map(s => (typeof s === "string" ? s : (s && s.text) || "")).join("\n\n").trim();
+        if (txt) {
+          ctx.sysSeen = true;
+          if (classify.showSystem) ctx.frag.appendChild(renderDeveloper(txt, ts, "System"));
+        }
+      }
+
+      const resp = e.response || {};
+      const rbody = resp.body || {};
+      const markThinking = (txt) => {
+        if (!txt || ctx.seenThinking.has(txt)) return false;
+        ctx.seenThinking.add(txt);
+        if (classify.showThinking) ctx.frag.appendChild(zcThinking(txt, ts));
+        return true;
+      };
+      markThinking(resp.reasoningText);
+      let contentHasText = false;
+      for (const b of (Array.isArray(rbody.content) ? rbody.content : [])) {
+        if (!b || typeof b !== "object") continue;
+        const t = String(b.type || "").toLowerCase();
+        if (t === "text" && b.text) {
+          contentHasText = true;
+          if (!ctx.seenAssistant.has(b.text)) {
+            ctx.seenAssistant.add(b.text);
+            ctx.frag.appendChild(renderAssistantText(b.text, ts));
+          }
+        } else if (t === "thinking" || t === "reasoning") {
+          markThinking(b.thinking || b.text || "");
+        } else if (t === "tool_use" || t === "tool_call") {
+          const id = b.id || b.toolCallId;
+          if (id && ctx.calls.has(id)) continue;
+          if (id) ctx.calls.set(id, { name: b.name, input: b.input, rendered: true });
+          ctx.frag.appendChild(zcToolCall(b.name || "tool", b.input, ts));
+        }
+      }
+      if (!contentHasText && typeof resp.text === "string" && resp.text.trim() && !ctx.seenAssistant.has(resp.text)) {
+        ctx.seenAssistant.add(resp.text);
+        ctx.frag.appendChild(renderAssistantText(resp.text, ts));
+      }
+      for (const c of (Array.isArray(resp.toolCalls) ? resp.toolCalls : [])) {
+        const id = c.id || c.toolCallId;
+        if (id && ctx.calls.has(id)) continue;
+        if (id) ctx.calls.set(id, { name: c.name, input: c.input, rendered: true });
+        ctx.frag.appendChild(zcToolCall(c.name || "tool", c.input, ts));
+      }
+      const u = resp.usage;
+      if (u && classify.showMeta) {
+        ctx.frag.appendChild(el("div", { class: "stats", text:
+          `tokens: in=${u.inputTokens ?? "?"} cached=${u.cacheReadTokens ?? 0} out=${u.outputTokens ?? "?"} · ${((e.durationMs || 0) / 1000).toFixed(1)}s · ${resp.finishReason || ""}` }));
+      }
+    }
+    return ctx.frag;
+  }
+
+  // ---- Generic JSONL (best effort for any coding agent) ----
+
+  const GENERIC_USER_TYPES = new Set(["user", "human", "input", "prompt", "question"]);
+  const GENERIC_ASSISTANT_TYPES = new Set(["assistant", "ai", "model", "agent", "gemini", "response", "answer", "bot"]);
+  const GENERIC_THINKING_TYPES = new Set(["thinking", "reasoning", "thought", "reflection"]);
+  const GENERIC_SYSTEM_TYPES = new Set(["system", "info", "notice", "context", "environment"]);
+  const GENERIC_ERROR_TYPES = new Set(["error", "warning", "warn", "fatal"]);
+  const GENERIC_TOOL_TYPES = new Set(["tool", "tool_use", "tool_call", "function_call", "action"]);
+  const GENERIC_RESULT_TYPES = new Set(["tool_result", "tool_output", "observation", "result", "function_output"]);
+
+  function genericText(obj, keys) {
+    for (const k of keys) {
+      const v = obj[k];
+      if (typeof v === "string" && v.trim()) return v;
+      if (v && typeof v === "object") {
+        const t = zcTextOfContent(v);
+        if (t.trim()) return t;
+      }
+    }
+    return "";
+  }
+
+  function renderGeneric(events) {
+    const frag = document.createDocumentFragment();
+    const pendingCalls = new Map(); // tool_call_id -> name
+    let shown = 0;
+    for (const e of events) {
+      if (!e || typeof e !== "object") continue;
+      const ts = e.timestamp || e.ts || e.time || e.created_at || e.createdAt;
+      try {
+        if (renderGenericEntry(e, frag, ts, pendingCalls)) shown++;
+      } catch { /* keep going; bad line */ }
+    }
+    if (!shown) {
+      for (const e of events.slice(0, 500)) {
+        frag.appendChild(bubble("system-meta", head("Record", null, "raw"),
+          collapsibleBlock("show raw JSON", JSON.stringify(e, null, 2))));
+      }
+    }
+    return frag;
+  }
+
+  function renderGenericEntry(e, frag, ts, pendingCalls) {
+    // Unwrap common envelopes: {message:{role,...}}, {event:{...}}, {record:{...}}.
+    let obj = e;
+    for (const k of ["message", "msg", "event", "record", "data", "entry", "log", "item"]) {
+      const v = obj ? obj[k] : null;
+      if (v && typeof v === "object" && !Array.isArray(v) && (v.role || v.type || v.content)) { obj = v; break; }
+    }
+    if (!obj || typeof obj !== "object") return false;
+
+    const rawType = String(obj.type != null ? obj.type : e.type != null ? e.type : "").toLowerCase();
+    const role = String(obj.role != null ? obj.role : "").toLowerCase();
+
+    // OpenAI-style assistant message with parallel tool_calls.
+    const callsArr = obj.tool_calls || obj.toolCalls;
+    if (Array.isArray(callsArr) && callsArr.length) {
+      for (const c of callsArr) {
+        const fn = c.function || c;
+        const args = fn.arguments != null
+          ? (typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments, null, 2))
+          : (fn.input != null ? JSON.stringify(fn.input, null, 2) : "");
+        if (c.id) pendingCalls.set(c.id, fn.name);
+        frag.appendChild(renderGenericToolCall(fn.name || "tool", args, ts));
+      }
+      const txt = genericText(obj, ["content", "text"]);
+      if (txt) frag.appendChild(renderAssistantText(txt, ts));
+      return true;
+    }
+
+    if (role === "tool" || role === "function" || GENERIC_RESULT_TYPES.has(rawType)) {
+      const id = obj.tool_call_id || obj.toolCallId || obj.tool_use_id || obj.call_id;
+      const txt = genericText(obj, ["content", "text", "output", "result"]);
+      frag.appendChild(zcToolResult(obj.name || pendingCalls.get(id) || "tool", txt, ts, !!obj.is_error, id ? `id ${short(id)}` : ""));
+      return true;
+    }
+
+    if (GENERIC_TOOL_TYPES.has(rawType) || (obj.name && (obj.input !== undefined || obj.arguments !== undefined) && !role)) {
+      const input = obj.input !== undefined ? obj.input : (obj.arguments !== undefined ? obj.arguments : obj.args);
+      const argsStr = typeof input === "string" ? input : JSON.stringify(input != null ? input : {}, null, 2);
+      frag.appendChild(renderGenericToolCall(obj.name || rawType, argsStr, ts));
+      return true;
+    }
+
+    if (GENERIC_THINKING_TYPES.has(rawType) || obj.thinking || obj.reasoning) {
+      if (classify.showThinking) frag.appendChild(zcThinking(obj.thinking || obj.reasoning || obj.text || "", ts));
+      return true;
+    }
+
+    if (role === "user" || GENERIC_USER_TYPES.has(rawType)) {
+      const txt = genericText(obj, ["content", "text", "message", "input", "prompt"]);
+      if (!txt) return false;
+      frag.appendChild(renderCodexUser(txt, ts));
+      return true;
+    }
+
+    if (role === "assistant" || role === "ai" || GENERIC_ASSISTANT_TYPES.has(rawType)) {
+      const txt = genericText(obj, ["content", "text", "message", "output", "response"]);
+      if (!txt) return false;
+      frag.appendChild(renderAssistantText(txt, ts));
+      return true;
+    }
+
+    if (role === "system" || GENERIC_SYSTEM_TYPES.has(rawType)) {
+      const txt = genericText(obj, ["content", "text", "message"]);
+      if (classify.showSystem && txt) frag.appendChild(renderDeveloper(txt, ts, "System"));
+      return true;
+    }
+
+    if (GENERIC_ERROR_TYPES.has(rawType)) {
+      const txt = genericText(obj, ["content", "text", "message", "error"]) || JSON.stringify(obj);
+      frag.appendChild(bubble("error", head("Error", ts), prose(txt)));
+      return true;
+    }
+
+    return false;
+  }
+
+  function renderGenericToolCall(name, argsStr, ts) {
+    const children = [];
+    if (argsStr && argsStr !== "{}") {
+      children.push(shouldCollapse(argsStr)
+        ? collapsibleBlock(`input (${argsStr.length} chars)`, argsStr)
+        : el("pre", { text: argsStr }));
+    }
+    return bubble("tool", head(name || "tool", ts, "call"), ...children);
+  }
+
+  // ---- filters ----
+
+  const classify = {
+    showThinking: true,
+    showSystem: true,
+    showMeta: false,
+  };
+
+  // ---- main ----
+
+  let lastEvents = null;
+  let lastFormat = null;
+  let lastErrors = [];
+
+  function render() {
+    inputError.style.display = "none";
+    const raw = input.value;
+    if (!raw.trim()) {
+      showError("Paste or load some JSONL first.");
+      return;
+    }
+    const { events, errors } = parseJsonl(raw);
+    if (!events.length) {
+      showError(errors.length ? errors.slice(0, 5).join("\n") : "No JSON lines found.");
+      return;
+    }
+    const fmt = detectFormat(events);
+    lastEvents = events;
+    lastFormat = fmt;
+    lastErrors = errors;
+    actuallyRender();
+
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand("copy");
+    helper.remove();
+  }
+
+  function addCopyButtons() {
+    output.querySelectorAll(".bubble").forEach((message) => {
+      const messageHead = message.querySelector(":scope > .event-head");
+      const target = messageHead || message;
+      const copyButton = el("button", {
+        class: "copy-btn",
+        type: "button",
+        text: "Copy",
+        "aria-label": "Copy this message",
+        onclick: async () => {
+          const clone = message.cloneNode(true);
+          clone.querySelectorAll(".event-head, .copy-btn").forEach((node) => node.remove());
+          const text = (clone.textContent || "").trim();
+          try {
+            await copyText(text);
+            copyButton.textContent = "Copied";
+            copyButton.classList.add("copied");
+            window.setTimeout(() => {
+              copyButton.textContent = "Copy";
+              copyButton.classList.remove("copied");
+            }, 1600);
+          } catch {
+            copyButton.textContent = "Failed";
+            window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1600);
+          }
+        },
+      });
+      if (messageHead) messageHead.appendChild(copyButton);
+      else {
+        message.classList.add("event-head");
+        target.appendChild(copyButton);
+      }
+    });
+  }
+
+  const FORMAT_LABELS = {
+    codex: "Codex",
+    claude: "Claude Code",
+    zcode: "ZCode transcript",
+    "zcode-io": "ZCode model I/O",
+    generic: "Generic JSONL",
+    unknown: "unknown",
+  };
+
+  function actuallyRender() {
+    output.innerHTML = "";
+    const renderer = { codex: renderCodex, claude: renderClaude, zcode: renderZCode, "zcode-io": renderZCodeIO, generic: renderGeneric }[lastFormat] || renderGeneric;
+    const frag = renderer(lastEvents);
+    output.appendChild(frag);
+    addCopyButtons();
+    if (lastErrors.length) {
+      output.prepend(el("div", {class: "input-error", text: `${lastErrors.length} malformed lines were skipped. Inspect Complete roundtrips or download the original JSONL.\n${lastErrors.slice(0, 5).join("\n")}`}));
+    }
+    output.classList.remove("empty");
+    inputSection.classList.add("hidden");
+    const aboutEl = document.getElementById("about-section");
+    if (aboutEl) aboutEl.classList.add("hidden");
+    newBtn.style.display = "";
+    filtersEl.style.display = "";
+    formatTag.textContent = FORMAT_LABELS[lastFormat] || lastFormat;
+    countTag.textContent = `${lastEvents.length} events`;
+    window.scrollTo(0, 0);
+  }
+
+  function showError(msg) {
+    inputError.textContent = msg;
+    inputError.style.display = "block";
+  }
+
+  function reset() {
+    inputSection.classList.remove("hidden");
+    const aboutEl = document.getElementById("about-section");
+    if (aboutEl) aboutEl.classList.add("hidden");
+    output.classList.add("empty");
+    output.innerHTML = "";
+    newBtn.style.display = "none";
+    filtersEl.style.display = "none";
+    formatTag.textContent = "";
+    countTag.textContent = "";
+    if (location.hash === "#about") history.replaceState(null, "", "#viewer");
+    input.focus();
+  }
+
+  // ---- events ----
+
+  const aboutSection = $("#about-section");
+  const dropzone = $("#dropzone");
+  const clearBtn = $("#clear-btn");
+
+  function showAbout() {
+    aboutSection.classList.remove("hidden");
+    inputSection.classList.add("hidden");
+    output.classList.add("empty");
+    newBtn.style.display = "none";
+    filtersEl.style.display = "none";
+    window.scrollTo(0, 0);
+  }
+
+  function showViewer() {
+    aboutSection.classList.add("hidden");
+    if (lastEvents) {
+      actuallyRender();
+    } else {
+      inputSection.classList.remove("hidden");
+      output.classList.add("empty");
+      newBtn.style.display = "none";
+    }
+  }
+
+  function routeFromHash() {
+    if (location.hash === "#about") showAbout();
+    else showViewer();
+  }
+  window.addEventListener("hashchange", routeFromHash);
+  // Initial route
+  routeFromHash();
+
+  $("#nav-about").addEventListener("click", (e) => {
+    e.preventDefault();
+    history.pushState(null, "", "#about");
+    showAbout();
+  });
+  $("#nav-viewer").addEventListener("click", (e) => {
+    e.preventDefault();
+    history.pushState(null, "", "#viewer");
+    showViewer();
+  });
+
+  $("#render-btn").addEventListener("click", render);
+  newBtn.addEventListener("click", () => { lastEvents = null; lastFormat = null; reset(); });
+
+  clearBtn.addEventListener("click", () => {
+    input.value = "";
+    inputError.style.display = "none";
+    input.focus();
+  });
+
+  async function loadFile(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      input.value = text;
+      render();
+    } catch (err) {
+      showError(`Could not read file: ${err.message}`);
+    }
+  }
+
+  $("#file-input").addEventListener("change", async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    await loadFile(f);
+  });
+
+  $("#example-btn").addEventListener("click", () => {
+    const key = $("#example-select").value;
+    input.value = (EXAMPLES[key] || EXAMPLES.codex)();
+    render();
+  });
+
+  for (const id of ["show-thinking", "show-system", "show-meta"]) {
+    const cb = document.getElementById(id);
+    cb.addEventListener("change", () => {
+      classify.showThinking = $("#show-thinking").checked;
+      classify.showSystem = $("#show-system").checked;
+      classify.showMeta = $("#show-meta").checked;
+      if (lastEvents) actuallyRender();
+    });
+  }
+
+  // Drag-drop: highlight dropzone while dragging over anywhere on the page,
+  // accept file drops either on the dropzone or the page when input is visible.
+  let dragDepth = 0;
+  function dropzoneActive() {
+    return !inputSection.classList.contains("hidden");
+  }
+  window.addEventListener("dragenter", (e) => {
+    if (!dropzoneActive()) return;
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes("Files")) return;
+    dragDepth++;
+    dropzone.classList.add("dragover");
+  });
+  window.addEventListener("dragleave", () => {
+    if (!dropzoneActive()) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropzone.classList.remove("dragover");
+  });
+  window.addEventListener("dragover", (e) => {
+    if (!dropzoneActive()) return;
+    if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("drop", async (e) => {
+    if (!dropzoneActive()) return;
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropzone.classList.remove("dragover");
+    await loadFile(f);
+  });
+
+  // Cmd/Ctrl+Enter to render
+  input.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      render();
+    }
+  });
+
+  // Small examples per supported format.
+  const jsonl = (arr) => arr.map(o => JSON.stringify(o)).join("\n");
+
+  const EXAMPLES = {
+    codex: () => jsonl([
+      { timestamp: "2026-04-29T18:16:36.478Z", type: "session_meta", payload: { id: "019dda74-abc", cwd: "/tmp/demo", originator: "codex-tui", cli_version: "0.125.0", model_provider: "openai" } },
+      { timestamp: "2026-04-29T18:19:21.966Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Summarize the repo please." }] } },
+      { timestamp: "2026-04-29T18:19:28.6Z", type: "response_item", payload: { type: "reasoning", summary: [{ text: "Check README, then list files." }] } },
+      { timestamp: "2026-04-29T18:19:28.7Z", type: "response_item", payload: { type: "function_call", name: "exec_command", arguments: "{\"cmd\":\"ls\"}", call_id: "c1" } },
+      { timestamp: "2026-04-29T18:19:28.8Z", type: "event_msg", payload: { type: "exec_command_end", call_id: "c1", command: ["/bin/zsh", "-lc", "ls"], parsed_cmd: [{ type: "list_files", cmd: "ls" }], aggregated_output: "README.md\npyproject.toml\nsrc\n", exit_code: 0, duration: { secs: 0, nanos: 12345 }, cwd: "/tmp/demo" } },
+      { timestamp: "2026-04-29T18:19:31Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The repo has a README, a pyproject.toml, and a `src/` directory. Want me to summarize the README?" }], phase: "final_answer" } },
+    ]),
+
+    claude: () => jsonl([
+      { type: "user", uuid: "u1", sessionId: "s-demo", timestamp: "2026-04-29T18:20:00Z", message: { role: "user", content: "Review src/app.ts for bugs." } },
+      { type: "assistant", uuid: "a1", sessionId: "s-demo", timestamp: "2026-04-29T18:20:04Z", message: { role: "assistant", content: [
+        { type: "thinking", thinking: "I should read the file first." },
+        { type: "tool_use", id: "t1", name: "Read", input: { file_path: "src/app.ts" } },
+      ] } },
+      { type: "user", uuid: "u2", sessionId: "s-demo", timestamp: "2026-04-29T18:20:06Z", message: { role: "user", content: [
+        { type: "tool_result", tool_use_id: "t1", content: "export function main() {\n  return fetch(\"/api\").then(r => r.json());\n}" },
+      ] } },
+      { type: "assistant", uuid: "a2", sessionId: "s-demo", timestamp: "2026-04-29T18:20:09Z", message: { role: "assistant", content: [
+        { type: "text", text: "`main()` looks fine — no null derefs, and the promise chain handles errors implicitly. No bugs found." },
+      ] } },
+    ]),
+
+    zcode: () => jsonl([
+      { id: "e1", sessionId: "sess_demo", type: "turn_started", timestamp: "2026-09-03T10:00:00Z", traceId: "t1", sequenceNumber: 0, payload: { turnNumber: 0, input: "Summarize the repo please." } },
+      { id: "e2", sessionId: "sess_demo", type: "model_request", timestamp: "2026-09-03T10:00:01Z", traceId: "t1", sequenceNumber: 0, payload: { model: "GLM-5.3-Flash", iteration: 0, messages: [
+        { role: "system", content: "You are ZCode, an interactive coding agent." },
+        { role: "user", content: "Summarize the repo please." },
+      ] } },
+      { id: "e3", sessionId: "sess_demo", type: "model_complete", timestamp: "2026-09-03T10:00:03Z", traceId: "t1", sequenceNumber: 0, payload: { content: "", querySource: "main_turn", stopReason: "tool-calls", usage: { inputTokens: 1200, outputTokens: 40, totalTokens: 1240, cacheReadTokens: 800 } } },
+      { id: "e4", sessionId: "sess_demo", type: "tool_call_scheduled", timestamp: "2026-09-03T10:00:04Z", traceId: "t1", sequenceNumber: 0, payload: { toolCallId: "call_1", toolName: "Bash", input: { command: "ls", description: "List files" } } },
+      { id: "e5", sessionId: "sess_demo", type: "tool_batch_complete", timestamp: "2026-09-03T10:00:04.5Z", traceId: "t1", sequenceNumber: 0, payload: { toolCallIds: ["call_1"], successCount: 1, errorCount: 0 } },
+      { id: "e6", sessionId: "sess_demo", type: "model_request", timestamp: "2026-09-03T10:00:05Z", traceId: "t1", sequenceNumber: 0, payload: { model: "GLM-5.3-Flash", iteration: 1, messages: [
+        { role: "system", content: "You are ZCode, an interactive coding agent." },
+        { role: "user", content: "Summarize the repo please." },
+        { role: "tool", toolCallId: "call_1", toolName: "Bash", isError: false, content: "README.md\nsrc\n" },
+      ] } },
+      { id: "e7", sessionId: "sess_demo", type: "model_complete", timestamp: "2026-09-03T10:00:08Z", traceId: "t1", sequenceNumber: 0, payload: { content: "The repo has a README and a `src/` directory.", querySource: "main_turn", stopReason: "stop", usage: { inputTokens: 1500, outputTokens: 30, totalTokens: 1530, cacheReadTokens: 1100 } } },
+      { id: "e8", sessionId: "sess_demo", type: "turn_complete", timestamp: "2026-09-03T10:00:08Z", traceId: "t1", sequenceNumber: 0, payload: { response: "The repo has a README and a `src/` directory." } },
+    ]),
+
+    "zcode-io": () => jsonl([
+      { type: "model_io", sessionId: "sess_demo", querySource: "main_turn", startedAt: "2026-09-03T10:00:00Z", completedAt: "2026-09-03T10:00:03Z", durationMs: 3000, model: { modelId: "GLM-5.3-Flash", providerId: "builtin:zai" },
+        request: { body: { model: "GLM-5.3-Flash", system: [{ type: "text", text: "You are ZCode, an interactive coding agent." }], messages: [
+          { role: "user", content: [{ type: "text", text: "Summarize the repo please." }] },
+        ] } },
+        response: { finishReason: "tool-calls", text: "", reasoningText: "Check the directory listing first.", toolCalls: [{ id: "call_1", name: "Bash", input: { command: "ls" } }],
+          body: { content: [{ type: "thinking", thinking: "Check the directory listing first." }], usage: {} }, usage: { inputTokens: 1200, outputTokens: 40, totalTokens: 1240, cacheReadTokens: 800 } } },
+      { type: "model_io", sessionId: "sess_demo", querySource: "main_turn", startedAt: "2026-09-03T10:00:04Z", completedAt: "2026-09-03T10:00:08Z", durationMs: 4000, model: { modelId: "GLM-5.3-Flash", providerId: "builtin:zai" },
+        request: { body: { model: "GLM-5.3-Flash", system: [{ type: "text", text: "You are ZCode, an interactive coding agent." }], messages: [
+          { role: "user", content: [{ type: "text", text: "Summarize the repo please." }] },
+          { role: "assistant", content: [{ type: "thinking", thinking: "Check the directory listing first." }, { type: "tool_use", id: "call_1", name: "Bash", input: { command: "ls" } }] },
+          { role: "tool", toolCallId: "call_1", toolName: "Bash", isError: false, content: "README.md\nsrc\n" },
+        ] } },
+        response: { finishReason: "stop", text: "The repo has a README and a `src/` directory.", toolCalls: [],
+          body: { content: [{ type: "text", text: "The repo has a README and a `src/` directory." }] }, usage: { inputTokens: 1500, outputTokens: 30, totalTokens: 1530, cacheReadTokens: 1100 } } },
+    ]),
+
+    generic: () => jsonl([
+      { timestamp: "2026-04-29T18:30:00Z", role: "system", content: "You are a coding assistant." },
+      { timestamp: "2026-04-29T18:30:05Z", type: "user", text: "What files are in this project?" },
+      { timestamp: "2026-04-29T18:30:07Z", role: "assistant", content: null, tool_calls: [{ id: "call_1", function: { name: "shell", arguments: "{\"command\":\"ls\"}" } }] },
+      { timestamp: "2026-04-29T18:30:08Z", role: "tool", tool_call_id: "call_1", name: "shell", content: "README.md\nsrc\n" },
+      { timestamp: "2026-04-29T18:30:10Z", role: "assistant", content: "There's a README.md and a `src/` directory." },
+    ]),
+  };
+
+  // Local swarm integration. Query values are text/URL data, never HTML.
+  const params = new URLSearchParams(location.search);
+  if (params.has("path") && params.has("agent") && params.has("name")) {
+    const query = params.toString();
+    $("#session-nav").hidden = false;
+    $("#back-run").href = "/run?" + new URLSearchParams({path: params.get("path")});
+    $("#roundtrips").href = "/roundtrips?" + query;
+    $("#raw-log").href = "/raw?" + query;
+    $("#session-label").textContent = params.get("agent") + " · " + params.get("path") + " · " + params.get("name");
+    inputSection.classList.add("hidden");
+    fetch("/raw?" + query).then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.text();
+    }).then(text => {
+      input.value = text;
+      render();
+      $("#load-status").textContent = lastEvents ? "" : "No readable events. Open Complete roundtrips to inspect this session.";
+    }).catch(error => {
+      $("#load-status").textContent = "Could not load session: " + error.message;
+    });
+  }
+
+})();
+</script>
+</body>
+</html>
