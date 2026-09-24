@@ -11,6 +11,18 @@ from agent_swarm.viewer import discover_runs
 
 
 class TraceTests(unittest.TestCase):
+    def test_body_metadata_with_sibling_conversation_tail(self):
+        messages = [{'role': 'tool', 'content': 'shared file updated successfully'}]
+        value = {'request': {'body': {'system': ['SYSTEM'], 'model': 'example'},
+                             'messages': messages, 'messageOffset': 17, 'messagesKind': 'tail'}}
+        self.assertEqual(request_parts(value), (['SYSTEM'], messages, 17))
+        records = read_records(io.BytesIO(json.dumps(value).encode() + b'\n'), 'test')
+        shown = render_session(records).split('<h3>Request messages</h3>', 1)[1].split('<details', 1)[0]
+        self.assertIn('shared file updated successfully', shown)
+        # An explicitly empty provider conversation must not be replaced by sibling data.
+        value['request']['body']['messages'] = []
+        self.assertEqual(request_parts(value)[1], [])
+
     def test_complete_modern_and_legacy_records(self):
         long = 'tool result ' * 2000 + '<script>END</script>'
         values = [

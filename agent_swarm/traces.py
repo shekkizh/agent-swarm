@@ -100,7 +100,8 @@ def request_parts(record: dict) -> tuple[object, object, object]:
     body = request.get('body')
     if not isinstance(body, dict):
         body = request
-    return (body.get('system'), body.get('messages', []),
+    # Native logs can keep provider metadata in body and conversation tails beside it.
+    return (body.get('system', request.get('system')), body.get('messages', request.get('messages', [])),
             record.get('messageOffset', request.get('messageOffset', body.get('messageOffset'))))
 
 
