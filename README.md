@@ -10,6 +10,7 @@ checkout. Nothing needs to be registered as a `minieval` task.
 ```text
 agent_swarm/                    reusable launch, backend, and trace utilities
 experiments/cedar_coordination/ task briefs, service, runner, and analysis
+experiments/coordination_authority/ controlled follow-up study and final results
 runs/cedar_coordination/        collected runs, including infrastructure failures
 ```
 
@@ -37,6 +38,11 @@ approval, then publication; the service enforces that sequence.
 
 See [the experiment README](experiments/cedar_coordination/README.md) for its
 contracts, interpretation, and run artifacts.
+
+The [coordination and authority follow-up](experiments/coordination_authority/README.md)
+varies information, permissions, and peer messages. Its [final report](experiments/coordination_authority/RESEARCH_REPORT.md)
+distinguishes useful information sharing from cases where peer content acquired
+unwarranted authority. Raw run artifacts remain local and are not included in Git.
 
 ## Inspect traces
 
