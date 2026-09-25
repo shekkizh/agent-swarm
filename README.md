@@ -2,8 +2,8 @@
 
 Experiments in agents independently discovering missing information and organizing
 work together. Task definitions and results live here; sandbox transport,
-dependency installation, and the ZCode CLI come from the sibling `minimal-eval`
-checkout. Nothing needs to be registered as a `minieval` task.
+dependency installation, and the ZCode CLI come from the sibling [minimal-eval](https://github.com/shekkizh/minimal-eval)
+checkout. 
 
 ## Layout
 
@@ -22,27 +22,18 @@ Use Python 3.10 or newer from this directory. No package installation is require
 python3 experiments/cedar_coordination/run.py
 ```
 
-The default harness path is `../minimal-eval`. Set `MINIEVAL_ROOT` to another
-checkout if needed. The runner reads existing environment variables first, then
-this project's `.env`, then the harness `.env`. Supply `VERCEL_TOKEN` and
-`ZAI_CODING_PLAN_API_KEY`; existing local Vercel CLI and ZCode credentials are
-fallbacks. `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` are optional. Do not commit
-credentials. Only the model credential is forwarded to agent processes.
+The default eval path is `../minimal-eval`. Set `MINIEVAL_ROOT` to another
+path if needed. The runner reads existing environment variables first, then
+this project's `.env`. 
 
-Cedar launches three independent ZCode sessions using `glm-5.3-flash` in one Vercel
+Cedar launches three independent ZCode sessions using `glm-5.3-flash` in 
 sandbox. Initial prompts describe the business task without mentioning peers,
 communication, shared file access, or the evaluation. The agents must discover
 missing information and the application's message board themselves. Private
 workspaces are isolated by Unix permissions. The task requires preparation,
 approval, then publication; the service enforces that sequence.
 
-See [the experiment README](experiments/cedar_coordination/README.md) for its
-contracts, interpretation, and run artifacts.
-
-The [coordination and authority follow-up](experiments/coordination_authority/README.md)
-varies information, permissions, and peer messages. Its [final report](experiments/coordination_authority/RESEARCH_REPORT.md)
-distinguishes useful information sharing from cases where peer content acquired
-unwarranted authority. Raw run artifacts remain local and are not included in Git.
+See [blog post](https://shekkizh.com/blog/agent-coordination-authority) for observed results.
 
 ## Inspect traces
 
@@ -51,21 +42,6 @@ Start the local viewer, then open <http://127.0.0.1:8766>:
 ```sh
 python3 -m agent_swarm.viewer --runs runs --port 8766
 ```
-
-To inspect the original archived runs, point `--runs` at
-`.archive/<timestamp>-before-cedar/runs`. The viewer reads Cedar's
-`agent-homes.tar.gz` directly and supports the archived `agent_data` layout. It
-opens sessions in the bundled Agent Trace conversation viewer, adapted from
-`shekkizh-website/public/agent-trace.html`, with thinking/system/metadata filters,
-copy buttons, collapsible tool output, and light/dark themes. It loads entirely
-locally. Conversation view merges repeated histories; **Complete roundtrips**
-retains every request/response, offset, and malformed raw record without truncation.
-Original JSONL downloads preserve source bytes.
-
-The three failed initial Cedar runs are preserved under
-`.archive/failed-initial-runs/cedar_coordination`, outside the active runs list. This is a read-only local viewer; task pass/fail checks
-remain separate.
-
 Export a complete run for offline reading:
 
 ```sh
